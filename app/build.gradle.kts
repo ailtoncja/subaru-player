@@ -27,6 +27,7 @@ android {
         versionCode = 1
         versionName = "1.0.0"
         buildConfigField("String", "LIBVLC_VERSION", "\"${libs.versions.libvlc.get()}\"")
+        testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
         // Celulares (arm64) e o emulador (x86_64): o resto só engordaria o APK
         ndk { abiFilters += listOf("arm64-v8a", "x86_64") }
     }
@@ -78,4 +79,13 @@ dependencies {
     implementation(libs.kotlinx.coroutines.android)
     implementation(libs.kotlinx.serialization.json)
     implementation(libs.libvlc)
+
+    // Testes instrumentados dos gestos do player (rodam no emulador/celular: ./gradlew connectedDebugAndroidTest)
+    androidTestImplementation(platform(libs.androidx.compose.bom))
+    androidTestImplementation("androidx.compose.ui:ui-test-junit4")
+    androidTestImplementation("androidx.test.ext:junit:1.3.0")
+    androidTestImplementation("androidx.test:runner:1.7.0")
+    // O Espresso que vem junto é velho demais para o Android 17 (usa InputManager.getInstance, que não existe mais)
+    androidTestImplementation("androidx.test.espresso:espresso-core:3.7.0")
+    debugImplementation("androidx.compose.ui:ui-test-manifest")
 }

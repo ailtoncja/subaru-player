@@ -16,13 +16,22 @@ import androidx.core.content.ContextCompat
 /** Lê os vídeos do aparelho pelo MediaStore, guardando a pasta (RELATIVE_PATH) de cada um. */
 object MediaRepository {
 
-    fun hasPermission(ctx: Context): Boolean {
-        val perm = if (Build.VERSION.SDK_INT >= 33) Manifest.permission.READ_MEDIA_VIDEO else Manifest.permission.READ_EXTERNAL_STORAGE
-        return ContextCompat.checkSelfPermission(ctx, perm) == PackageManager.PERMISSION_GRANTED
-    }
-
-    val permission: String
+    private val videoPermission: String
         get() = if (Build.VERSION.SDK_INT >= 33) Manifest.permission.READ_MEDIA_VIDEO else Manifest.permission.READ_EXTERNAL_STORAGE
+
+    private fun granted(ctx: Context, perm: String) = ContextCompat.checkSelfPermission(ctx, perm) == PackageManager.PERMISSION_GRANTED
+
+    /** Acesso a todos os vídeos do aparelho. */
+    fun hasFullAccess(ctx: Context): Boolean = granted(ctx, videoPermission)
+
+    /** Algum acesso: completo, ou "limitado" (Android 14+, só os vídeos que o usuário escolheu). */
+    fun hasPermission(ctx: Context): Boolean =
+        hasFullAccess(ctx) || (Build.VERSION.SDK_INT >= 34 && granted(ctx, Manifest.permission.READ_MEDIA_VISUAL_USER_SELECTED))
+
+    /** O que pedir: no Android 14+ pede junto o acesso parcial, para o diálogo oferecer "limitado" sem quebrar o app. */
+    val permissions: Array<String>
+        get() = if (Build.VERSION.SDK_INT >= 34) arrayOf(Manifest.permission.READ_MEDIA_VIDEO, Manifest.permission.READ_MEDIA_VISUAL_USER_SELECTED)
+        else arrayOf(videoPermission)
 
     fun load(ctx: Context): List<Video> {
         val collection = MediaStore.Video.Media.getContentUri(MediaStore.VOLUME_EXTERNAL)

@@ -41,6 +41,9 @@ class AppViewModel(private val app: Application) : AndroidViewModel(app) {
     // ---------- Permissão e biblioteca ----------
     var hasPermission by mutableStateOf(MediaRepository.hasPermission(app))
         private set
+    /** false com "acesso limitado": a biblioteca só mostra os vídeos que o usuário liberou. */
+    var fullAccess by mutableStateOf(MediaRepository.hasFullAccess(app))
+        private set
     var library by mutableStateOf(Library.EMPTY)
         private set
     var loading by mutableStateOf(false)
@@ -92,11 +95,13 @@ class AppViewModel(private val app: Application) : AndroidViewModel(app) {
     }
 
     fun onPermissionResult() {
+        fullAccess = MediaRepository.hasFullAccess(app)
         hasPermission = MediaRepository.hasPermission(app)
         if (hasPermission) startLibrary()
     }
 
     fun refresh() {
+        fullAccess = MediaRepository.hasFullAccess(app)
         if (!MediaRepository.hasPermission(app)) { hasPermission = false; return }
         hasPermission = true
         viewModelScope.launch {

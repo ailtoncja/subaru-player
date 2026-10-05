@@ -1,6 +1,7 @@
 package com.subaruplayer.app.ui.components
 
 import android.graphics.Bitmap
+import android.media.MediaMetadataRetriever
 import android.net.Uri
 import android.util.LruCache
 import android.util.Size
@@ -8,6 +9,13 @@ import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.text.KeyboardActions
+import androidx.compose.foundation.text.KeyboardOptions
+import androidx.compose.ui.focus.FocusRequester
+import androidx.compose.ui.focus.focusRequester
+import androidx.compose.ui.text.input.ImeAction
+import androidx.compose.ui.text.input.KeyboardCapitalization
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
@@ -85,7 +93,14 @@ fun VideoThumb(video: Video, modifier: Modifier = Modifier, progress: Float? = n
     val bmp by produceState<Bitmap?>(ThumbCache.cache.get(video.uri), video.uri) {
         if (value == null) {
             value = withContext(Dispatchers.IO) {
+                // 1) miniatura do sistema; 2) se ainda não existe (arquivo recém-copiado), tira um quadro do próprio vídeo
                 runCatching { ctx.contentResolver.loadThumbnail(Uri.parse(video.uri), Size(480, 270), null) }.getOrNull()
+                    ?: runCatching {
+                        MediaMetadataRetriever().use { r ->
+                            r.setDataSource(ctx, Uri.parse(video.uri))
+                            r.getScaledFrameAtTime(1_000_000, MediaMetadataRetriever.OPTION_CLOSEST_SYNC, 480, 270)
+                        }
+                    }.getOrNull()
             }?.also { ThumbCache.cache.put(video.uri, it) }
         }
     }
@@ -223,6 +238,8 @@ fun FolderRow(node: FolderNode, onClick: () -> Unit, modifier: Modifier = Modifi
 @Composable
 fun PromptDialog(title: String, initial: String, confirmLabel: String, onConfirm: (String) -> Unit, onDismiss: () -> Unit) {
     var text by remember { mutableStateOf(initial) }
+    val focus = remember { FocusRequester() }
+    LaunchedEffect(Unit) { runCatching { focus.requestFocus() } }
     AlertDialog(
         onDismissRequest = onDismiss,
         containerColor = C.CardHigh,
@@ -231,6 +248,9 @@ fun PromptDialog(title: String, initial: String, confirmLabel: String, onConfirm
             OutlinedTextField(
                 text, { text = it }, singleLine = true, colors = textFieldColors(), shape = RoundedCornerShape(14.dp),
                 textStyle = T.bodyMd, placeholder = { Text("Nome") },
+                modifier = Modifier.focusRequester(focus),
+                keyboardOptions = KeyboardOptions(capitalization = KeyboardCapitalization.Sentences, imeAction = ImeAction.Done),
+                keyboardActions = KeyboardActions(onDone = { if (text.isNotBlank()) onConfirm(text) }),
             )
         },
         confirmButton = { TextButton({ onConfirm(text) }, enabled = text.isNotBlank()) { Text(confirmLabel, style = T.labelLg, color = C.Gold) } },

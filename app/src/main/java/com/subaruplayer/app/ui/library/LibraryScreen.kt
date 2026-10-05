@@ -39,6 +39,7 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.OutlinedTextField
+import androidx.compose.material3.TextButton
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
@@ -49,7 +50,9 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.foundation.background
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.platform.LocalContext
@@ -89,23 +92,41 @@ fun LibraryScreen(vm: AppViewModel) {
     }
     var addKey by remember { mutableStateOf<String?>(null) }
 
-    Box(Modifier.fillMaxSize()) {
-        if (vm.searchOpen) SearchPanel(vm, progress) { addKey = it.key }
-        else FolderView(vm, progress, settings.gridView) { addKey = it.key }
+    Column(Modifier.fillMaxSize()) {
+        if (!vm.fullAccess) PartialAccessBanner()
+        Box(Modifier.weight(1f).fillMaxWidth()) {
+            if (vm.searchOpen) SearchPanel(vm, progress) { addKey = it.key }
+            else FolderView(vm, progress, settings.gridView) { addKey = it.key }
+        }
     }
     addKey?.let { key -> AddToPlaylistDialog(key, onDismiss = { addKey = null }, onAdded = { vm.toast("Adicionado a “$it”") }) }
+}
+
+/** Aviso do "acesso limitado" do Android 14+: só aparecem os vídeos escolhidos, então as pastas ficam incompletas. */
+@Composable
+private fun PartialAccessBanner() {
+    val ctx = LocalContext.current
+    Row(
+        Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 6.dp).clip(RoundedCornerShape(14.dp)).background(Color(0x26FACC15)).padding(start = 14.dp, end = 6.dp, top = 8.dp, bottom = 8.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Text("Acesso limitado: só os vídeos que você liberou aparecem, e as pastas ficam incompletas.", Modifier.weight(1f), style = T.labelMd, color = C.Text)
+        TextButton({
+            ctx.startActivity(Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS, Uri.parse("package:${ctx.packageName}")).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK))
+        }) { Text("Liberar todos", style = T.labelLg, color = C.Gold) }
+    }
 }
 
 @Composable
 private fun PermissionGate(vm: AppViewModel) {
     val ctx = LocalContext.current
-    val ask = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) { vm.onPermissionResult() }
+    val ask = rememberLauncherForActivityResult(ActivityResultContracts.RequestMultiplePermissions()) { vm.onPermissionResult() }
     Column(Modifier.fillMaxSize().padding(24.dp), horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.Center) {
         Empty(
             "Para mostrar seus vídeos, com cada um na sua pasta, o Subaru Player precisa de acesso aos vídeos do aparelho. Ele só lê, nunca altera nem envia nada.",
             icon = Icons.Outlined.VideoLibrary, title = "Permita o acesso aos vídeos",
         )
-        BtnPrimary("Permitir acesso", { ask.launch(MediaRepository.permission) }, Modifier.fillMaxWidth())
+        BtnPrimary("Permitir acesso", { ask.launch(MediaRepository.permissions) }, Modifier.fillMaxWidth())
         Spacer(Modifier.height(10.dp))
         BtnGhost("Abrir ajustes do app", {
             ctx.startActivity(Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS, Uri.parse("package:${ctx.packageName}")).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK))

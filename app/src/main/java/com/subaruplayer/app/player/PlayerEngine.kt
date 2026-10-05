@@ -8,6 +8,7 @@ import android.media.AudioAttributes
 import android.media.AudioFocusRequest
 import android.media.AudioManager
 import android.net.Uri
+import android.util.Log
 import android.os.ParcelFileDescriptor
 import com.subaruplayer.app.data.AppSettings
 import com.subaruplayer.app.data.HwMode
@@ -56,6 +57,28 @@ data class PlayerState(
  * Tudo roda na thread principal; só a liberação do libVLC acontece em segundo plano para não travar a tela.
  */
 class PlayerEngine(private val appContext: Context) {
+    companion object {
+        /**
+         * Na primeira execução o libVLC monta o cache de fontes das legendas, o que leva muitos segundos e travava o
+         * primeiro vídeo. Fazemos isso em segundo plano logo que o app abre, uma única vez.
+         */
+        fun warmUp(ctx: Context) {
+            val app = ctx.applicationContext
+            val prefs = app.getSharedPreferences("engine", Context.MODE_PRIVATE)
+            if (prefs.getBoolean("fontCacheBuilt", false)) return
+            Thread {
+                runCatching {
+                    val lib = LibVLC(app, arrayListOf("--no-video"))
+                    val t0 = System.currentTimeMillis()
+                    lib.buildFontCache()
+                    Log.d("SUBARU", "cache de fontes montado em ${System.currentTimeMillis() - t0} ms")
+                    lib.release()
+                    prefs.edit().putBoolean("fontCacheBuilt", true).apply()
+                }
+            }.start()
+        }
+    }
+
     private val _state = MutableStateFlow(PlayerState())
     val state: StateFlow<PlayerState> = _state.asStateFlow()
 
@@ -260,8 +283,9 @@ class PlayerEngine(private val appContext: Context) {
 
     fun play() {
         val mp = player ?: return
+        // Depois do fim o arquivo (aberto por descritor) já foi lido até o final: reabrimos o vídeo do zero
+        if (_state.value.ended) { current?.let { startMedia(it, 0, autoplay = true) }; return }
         requestFocus()
-        if (_state.value.ended) { mp.stop(); _state.update { it.copy(ended = false, positionMs = 0) } }
         mp.play()
     }
 
@@ -274,12 +298,22 @@ class PlayerEngine(private val appContext: Context) {
 
     fun seekTo(ms: Long) {
         val mp = player ?: return
+        // Buscar depois do fim (barra, toque duplo) recomeça o vídeo naquele ponto
+        if (_state.value.ended) { current?.let { startMedia(it, ms.coerceAtLeast(0), autoplay = true) }; return }
         val target = ms.coerceIn(0, (_state.value.durationMs.takeIf { it > 0 } ?: Long.MAX_VALUE))
+        Log.d("SUBARU", "seekTo $target (de ${_state.value.positionMs}, duração ${_state.value.durationMs})")
         mp.setTime(target)
         _state.update { it.copy(positionMs = target) }
     }
 
     fun seekBy(deltaMs: Long) = seekTo(_state.value.positionMs + deltaMs)
+
+    /** Depois de girar a tela o decodificador de hardware pode recomeçar no meio de um grupo de quadros; um "pulo" até o ponto atual o realinha. */
+    fun resync() {
+        val mp = player ?: return
+        val s = _state.value
+        if (s.playing && s.started && !s.ended) mp.setTime(s.positionMs)
+    }
 
     fun setSpeed(speed: Float) {
         player?.setRate(speed)
@@ -289,6 +323,7 @@ class PlayerEngine(private val appContext: Context) {
     /** Segurar a tela: velocidade turbo só enquanto o dedo está apoiado. */
     fun boost(on: Boolean, speed: Float) {
         val mp = player ?: return
+        Log.d("SUBARU", "boost=$on velocidade=$speed")
         if (on && !_state.value.boosting) {
             rateBeforeBoost = _state.value.speed
             mp.setRate(speed)
@@ -305,8 +340,11 @@ class PlayerEngine(private val appContext: Context) {
     }
 
     fun setSubTrack(id: Int) {
-        player?.setSpuTrack(id)
+        val mp = player ?: return
+        val ok = mp.setSpuTrack(id)
+        Log.d("SUBARU", "setSubTrack($id) -> $ok; faixa agora=${mp.spuTrack}")
         _state.update { it.copy(subTrackId = id) }
+
     }
 
     fun setAudioDelayMs(ms: Long) {
@@ -325,6 +363,7 @@ class PlayerEngine(private val appContext: Context) {
     }
 
     fun setFill(fill: Boolean) {
+        Log.d("SUBARU", "fill=$fill")
         _state.update { it.copy(fill = fill) }
         player?.let { applyScale(it) }
     }

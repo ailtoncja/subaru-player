@@ -6,6 +6,7 @@ import androidx.compose.foundation.border
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.ColumnScope
 import androidx.compose.foundation.layout.Row
@@ -187,8 +188,9 @@ fun <T> Segmented(options: List<Seg<T>>, selected: T, onSelect: (T) -> Unit, mod
                     inactiveContainerColor = Color.Transparent, inactiveContentColor = C.Muted, inactiveBorderColor = C.Outline,
                 ),
                 icon = { Icon(Icons.Filled.Check, null, Modifier.size(0.dp)) },
+                contentPadding = PaddingValues(horizontal = 2.dp),
                 modifier = Modifier.heightIn(min = 44.dp),
-            ) { Text(o.label, style = T.labelLg, maxLines = 1) }
+            ) { Text(o.label, style = if (options.size >= 5) T.labelMd.copy(fontWeight = FontWeight.SemiBold, color = Color.Unspecified) else T.labelLg, maxLines = 1, softWrap = false) }
         }
     }
 }

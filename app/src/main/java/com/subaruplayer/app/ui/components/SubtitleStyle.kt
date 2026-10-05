@@ -28,7 +28,7 @@ import com.subaruplayer.app.ui.theme.C
 import com.subaruplayer.app.ui.theme.T
 
 /** Tamanhos de legenda do libVLC (--freetype-rel-fontsize): número menor = letra maior. */
-private val SubSizes = listOf(Seg(20, "Menor"), Seg(18, "Pequena"), Seg(16, "Normal"), Seg(13, "Grande"), Seg(10, "Enorme"))
+private val SubSizes = listOf(Seg(20, "Menor"), Seg(18, "Peq."), Seg(16, "Normal"), Seg(13, "Grande"), Seg(10, "Enorme"))
 
 private val SubColors = listOf(0xFFFFFF to "Branca", 0xFACC15 to "Dourada", 0x7BD0FF to "Azul-clara", 0x4ADE80 to "Verde", 0xF9A8D4 to "Rosa")
 

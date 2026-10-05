@@ -6,6 +6,7 @@ import android.content.ContextWrapper
 import android.content.pm.ActivityInfo
 import android.content.res.Configuration
 import android.os.Build
+import android.util.Log
 import android.view.OrientationEventListener
 import androidx.activity.compose.BackHandler
 import androidx.activity.compose.rememberLauncherForActivityResult
@@ -56,6 +57,9 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.clipToBounds
+import androidx.compose.ui.draw.drawBehind
+import androidx.compose.ui.graphics.Shadow
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalConfiguration
@@ -187,6 +191,11 @@ fun PlayerScreen(vm: AppViewModel, inPip: Boolean) {
         }
     }
     LaunchedEffect(hint) { if (hint != null) { delay(1400); hint = null } }
+    // Girar a tela recria a superfície do vídeo: realinha o decodificador logo depois
+    LaunchedEffect(landscape) {
+        delay(700)
+        engine.resync()
+    }
 
     // ---------- Toque duplo que soma ----------
     var lastTapUptime by remember { mutableLongStateOf(0L) }
@@ -216,13 +225,13 @@ fun PlayerScreen(vm: AppViewModel, inPip: Boolean) {
                 else -> {
                     lastTapUptime = uptime
                     singleJob?.cancel()
-                    singleJob = scope.launch { delay(280); controlsVisible = !controlsVisible; touch() }
+                    singleJob = scope.launch { delay(280); controlsVisible = !controlsVisible; Log.d("SUBARU", "toque simples: controles=$controlsVisible"); touch() }
                 }
             }
         },
         onHold = { on -> engine.boost(on, settings.holdSpeed) },
-        onSwipeUp = { if (!immersive) enterFullscreen() },
-        onSwipeDown = { if (immersive && !inPip) exitFullscreen() },
+        onSwipeUp = { Log.d("SUBARU", "swipe up (imersivo=$immersive)"); if (!immersive) enterFullscreen() },
+        onSwipeDown = { Log.d("SUBARU", "swipe down (imersivo=$immersive)"); if (immersive && !inPip) exitFullscreen() },
         onPinch = { zoomIn ->
             engine.setFill(zoomIn)
             showHint(if (zoomIn) "Preencher a tela" else "Ajustar à tela")
@@ -246,7 +255,7 @@ fun PlayerScreen(vm: AppViewModel, inPip: Boolean) {
             if (!inPip) {
                 SeekFeedbackOverlay(feedback)
                 if (st.boosting) Pill("${speedLabel(settings.holdSpeed)}  ▶▶", Modifier.align(Alignment.TopCenter).padding(top = 14.dp), C.Gold)
-                hint?.let { h -> Pill(h.text, Modifier.align(Alignment.TopCenter).padding(top = 14.dp)) }
+                hint?.let { h -> Pill(h.text, Modifier.align(Alignment.TopCenter).padding(top = 64.dp)) }
             }
             if ((!st.started || st.buffering) && !st.error) CircularProgressIndicator(Modifier.align(Alignment.Center).size(44.dp), color = C.Gold, trackColor = Color(0x33FFFFFF))
             if (st.error) ErrorPanel(
@@ -328,14 +337,22 @@ private fun androidx.compose.foundation.layout.BoxScope.SeekFeedbackOverlay(feed
     val fb = feedback ?: last.value ?: return
     if (alpha <= 0.01f) return
     val left = fb.side < 0
-    val shape = if (left) RoundedCornerShape(topEndPercent = 50, bottomEndPercent = 50) else RoundedCornerShape(topStartPercent = 50, bottomStartPercent = 50)
     Box(
-        Modifier.align(if (left) Alignment.CenterStart else Alignment.CenterEnd).fillMaxHeight().fillMaxWidth(0.4f).alpha(alpha).clip(shape).background(Color(0x40FFFFFF)),
+        Modifier.align(if (left) Alignment.CenterStart else Alignment.CenterEnd).fillMaxHeight().fillMaxWidth(0.42f).alpha(alpha).clipToBounds()
+            .drawBehind {
+                // Um círculo grande com o centro fora da tela: sobra uma meia-lua colada na borda tocada
+                val r = size.height * 0.95f
+                val cx = if (left) -r * 0.45f else size.width + r * 0.45f
+                drawCircle(Color(0x73000000), r, Offset(cx, size.height / 2))
+            },
         contentAlignment = Alignment.Center,
     ) {
         Column(horizontalAlignment = Alignment.CenterHorizontally) {
             androidx.compose.material3.Icon(if (left) Icons.Outlined.FastRewind else Icons.Outlined.FastForward, null, Modifier.size(34.dp), tint = Color.White)
-            Text("${fb.seconds} segundos", style = T.labelLg, color = Color.White, textAlign = TextAlign.Center)
+            Text(
+                "${fb.seconds} segundos", style = T.labelLg.copy(shadow = Shadow(Color.Black, Offset(0f, 2f), 6f)),
+                color = Color.White, textAlign = TextAlign.Center,
+            )
         }
     }
 }

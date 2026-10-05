@@ -1,6 +1,5 @@
 package com.subaruplayer.app.ui.player
 
-import android.os.SystemClock
 import androidx.compose.foundation.gestures.awaitEachGesture
 import androidx.compose.foundation.gestures.awaitFirstDown
 import androidx.compose.runtime.Composable
@@ -8,7 +7,7 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.geometry.Offset
-import androidx.compose.ui.input.pointer.PointerEvent
+import androidx.compose.ui.input.pointer.PointerInputChange
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.unit.IntSize
 import androidx.compose.ui.unit.dp
@@ -27,10 +26,12 @@ class PlayerGestureCallbacks(
     val onPinch: (zoomIn: Boolean) -> Unit,
 )
 
-private const val UNDECIDED = 0
+private const val TAPPED = 0
 private const val HOLDING = 1
 private const val DRAGGING = 2
 private const val PINCHING = 3
+
+private fun distance(pressed: List<PointerInputChange>): Float = (pressed[0].position - pressed[1].position).getDistance()
 
 /**
  * Um único detector para todos os gestos do vídeo, para que um não atrapalhe o outro:
@@ -50,29 +51,58 @@ fun Modifier.playerGestures(callbacks: PlayerGestureCallbacks): Modifier {
         awaitEachGesture {
             val down = awaitFirstDown(requireUnconsumed = false)
             val start = down.position
-            var mode = UNDECIDED
-            var dx = 0f
-            var dy = 0f
+            var tapTime = 0L
             var pinchStart = 0f
             var pinchLast = 0f
-            while (true) {
-                val event: PointerEvent? = if (mode == UNDECIDED) {
-                    val remaining = longPressMs - (SystemClock.uptimeMillis() - down.uptimeMillis)
-                    withTimeoutOrNull(remaining.coerceAtLeast(1L)) { awaitPointerEvent() }
-                } else awaitPointerEvent()
 
-                if (event == null) { // o tempo acabou sem o dedo soltar nem andar: é "segurar"
-                    mode = HOLDING
-                    cb.onHold(true)
-                    continue
+            // Fase 1: até o dedo soltar (toque), andar (arrasto), chegar o 2º dedo (pinça) ou o tempo acabar (segurar)
+            var mode = withTimeoutOrNull(longPressMs) {
+                while (true) {
+                    val ev = awaitPointerEvent()
+                    val pressed = ev.changes.filter { it.pressed }
+                    if (pressed.size >= 2) {
+                        pinchStart = distance(pressed)
+                        pinchLast = pinchStart
+                        ev.changes.forEach { it.consume() }
+                        return@withTimeoutOrNull PINCHING
+                    }
+                    val c = ev.changes.firstOrNull { it.id == down.id } ?: ev.changes.first()
+                    if (!c.pressed) {
+                        tapTime = c.uptimeMillis
+                        return@withTimeoutOrNull TAPPED
+                    }
+                    if ((c.position - start).getDistance() > slop) return@withTimeoutOrNull DRAGGING
                 }
-                val pressed = event.changes.filter { it.pressed }
+                @Suppress("UNREACHABLE_CODE")
+                TAPPED
+            } ?: HOLDING
 
-                if (mode != HOLDING && pressed.size >= 2) {
-                    val d = (pressed[0].position - pressed[1].position).getDistance()
+            if (mode == TAPPED) {
+                cb.onTap(start, tapTime, size)
+                return@awaitEachGesture
+            }
+            if (mode == HOLDING) {
+                cb.onHold(true)
+                while (true) {
+                    val ev = awaitPointerEvent()
+                    ev.changes.forEach { it.consume() }
+                    if (ev.changes.none { it.pressed }) break
+                }
+                cb.onHold(false)
+                return@awaitEachGesture
+            }
+
+            // Fase 2: arrasto vertical ou pinça, até todos os dedos saírem
+            var dx = 0f
+            var dy = 0f
+            while (true) {
+                val ev = awaitPointerEvent()
+                val pressed = ev.changes.filter { it.pressed }
+                if (pressed.size >= 2) {
+                    val d = distance(pressed)
                     if (mode != PINCHING) { mode = PINCHING; pinchStart = d }
                     pinchLast = d
-                    event.changes.forEach { it.consume() }
+                    ev.changes.forEach { it.consume() }
                     continue
                 }
                 if (mode == PINCHING) {
@@ -81,27 +111,19 @@ fun Modifier.playerGestures(callbacks: PlayerGestureCallbacks): Modifier {
                         if (ratio > 1.12f) cb.onPinch(true) else if (ratio < 0.88f) cb.onPinch(false)
                         break
                     }
-                    event.changes.forEach { it.consume() }
+                    ev.changes.forEach { it.consume() }
                     continue
                 }
-
-                val c = event.changes.firstOrNull { it.id == down.id } ?: event.changes.first()
-                if (!c.pressed) { // o dedo saiu da tela
-                    when (mode) {
-                        UNDECIDED -> cb.onTap(start, c.uptimeMillis, size)
-                        HOLDING -> cb.onHold(false)
-                        DRAGGING -> if (abs(dy) > swipeMin && abs(dy) > abs(dx) * 1.5f) {
-                            if (dy < 0) cb.onSwipeUp() else cb.onSwipeDown()
-                        }
+                val c = ev.changes.firstOrNull { it.id == down.id } ?: ev.changes.first()
+                if (!c.pressed) {
+                    if (abs(dy) > swipeMin && abs(dy) > abs(dx) * 1.5f) {
+                        if (dy < 0) cb.onSwipeUp() else cb.onSwipeDown()
                     }
                     break
                 }
-                if (mode == UNDECIDED && (c.position - start).getDistance() > slop) mode = DRAGGING
-                if (mode == DRAGGING) {
-                    dx = c.position.x - start.x
-                    dy = c.position.y - start.y
-                }
-                if (mode != UNDECIDED) c.consume()
+                dx = c.position.x - start.x
+                dy = c.position.y - start.y
+                c.consume()
             }
         }
     }
